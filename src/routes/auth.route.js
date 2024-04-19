@@ -3,6 +3,7 @@ import {
   loginUser,
   logoutUser,
   registerUser,
+  resendOTP,
   verifyOTP,
 } from "../controllers/auth.controller.js";
 
@@ -16,5 +17,6 @@ router.route("/register").post(registerUser);
 router.route("/verify").post(verifyOTP);
 router.route("/login").post(loginUser);
 router.route("/logout").post(verifyJWT,logoutUser);
+router.route("/resendOtp").put(resendOTP);
 
 export default router;

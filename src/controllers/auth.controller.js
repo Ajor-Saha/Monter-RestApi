@@ -194,4 +194,50 @@ const logoutUser = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, {}, "User logged out"));
 });
 
-export { registerUser, verifyOTP, loginUser, logoutUser };
+const resendOTP = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+
+  if (!email || email.trim() === "") {
+    throw new ApiError(401, "Email is required");
+  }
+
+  const user = await User.findOne({ email });
+
+  if (!user) {
+    throw new ApiError(401, "User not found");
+  }
+
+  // Generate new OTP
+  const otp = Math.floor(1000 + Math.random() * 9000);
+
+  // Update OTP in the database
+  await OTP.findOneAndUpdate({ email }, { otp });
+
+  // Send OTP to user's email
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: "Verification OTP",
+    text: `Your new OTP is: ${otp}`,
+  };
+
+  transporter.sendMail(mailOptions, (error, info) => {
+    if (error) {
+      console.error(error);
+      throw new ApiError(401, "Failed to send OTP");
+    }
+    console.log("Email sent: " + info.response);
+    return res.status(201).json(new ApiResponse(201, {}, `New OTP sent to your ${email}`));
+  });
+});
+
+
+export { registerUser, verifyOTP, loginUser, logoutUser, resendOTP };
