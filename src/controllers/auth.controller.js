@@ -5,7 +5,6 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import nodemailer from "nodemailer";
 
-
 const generateAccessAndRefreshTokens = async (userId) => {
   try {
     const user = await User.findById(userId);
@@ -77,37 +76,122 @@ const registerUser = asyncHandler(async (req, res) => {
     }
     console.log("Email sent: " + info.response);
     return res
-    .status(201)
-    .json(new ApiResponse(201, {}, `OTP sent to your ${email}. Verify your account.`))
+      .status(201)
+      .json(
+        new ApiResponse(
+          201,
+          {},
+          `OTP sent to your ${email}. Verify your account.`
+        )
+      );
   });
-  
 });
 
 const verifyOTP = asyncHandler(async (req, res) => {
-    const { email, otp } = req.body;
-  
-    const otpRecord = await OTP.findOne({ email }).sort({ createdAt: -1 });
-  
-    
-    if (!otpRecord || otpRecord.otp !== otp) {
-      throw new ApiError(400, "Invalid OTP");
-    }
-  
-    
-    await User.findOneAndUpdate({ email }, { isVerified: true });
-  
-    
-    await OTP.deleteOne({ _id: otpRecord._id });
-  
-    return res
+  const { email, otp, location, age, workDetails } = req.body;
+
+  const otpRecord = await OTP.findOne({ email }).sort({ createdAt: -1 });
+
+  if (!otpRecord || otpRecord.otp !== otp) {
+    throw new ApiError(401, "Invalid OTP");
+  }
+
+  await User.findOneAndUpdate({ email }, { isVerified: true });
+
+  if (location || age || workDetails) {
+    await User.findOneAndUpdate(
+      { email },
+      { location, age, workDetails },
+      { new: true }
+    );
+  }
+
+  await OTP.deleteOne({ _id: otpRecord._id });
+
+  return res
     .status(201)
-    .json(new ApiResponse(201, {}, "OTP verified successfully"))
-  });
+    .json(new ApiResponse(201, {}, "Account validated successfully"));
+});
+
+
+const loginUser = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email) {
+    throw new ApiError(401, "email is required");
+  }
+
+  const user = await User.findOne({email});
+
+  if (!user) {
+    throw new ApiError(401, "User does not exist");
+  }
+
   
 
+  const isPasswordValid = await user.isPasswordCorrect(password);
 
-export {
-    registerUser,
-    verifyOTP,
-}
+  if (!isPasswordValid) {
+    throw new ApiError(401, "Invalid user credentials");
+  }
 
+  if (!user.isVerified) {
+    throw new ApiError(401, "Verification is required to login to your account")
+  }
+
+  const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(
+    user._id
+  );
+
+  const loggedInUser = await User.findById(user._id).select(
+    "-password -refreshToken"
+  );
+
+  const options = {
+    httpOnly: true,
+    secure: true,
+  };
+
+  return res
+    .status(201)
+    .cookie("accessToken", accessToken, options)
+    .cookie("refreshToken", refreshToken, options)
+    .json(
+      new ApiResponse(
+        201,
+        {
+          user: loggedInUser,
+          accessToken,
+          refreshToken,
+        },
+        "User logged In Successfully"
+      )
+    );
+});
+
+const logoutUser = asyncHandler(async (req, res) => {
+  await User.findByIdAndUpdate(
+    req.user._id,
+    {
+      $unset: {
+        refreshToken: 1, // this removes the field from document
+      },
+    },
+    {
+      new: true,
+    }
+  );
+
+  const options = {
+    httpOnly: true,
+    secure: true,
+  };
+
+  return res
+    .status(201)
+    .clearCookie("accessToken", options)
+    .clearCookie("refreshToken", options)
+    .json(new ApiResponse(201, {}, "User logged out"));
+});
+
+export { registerUser, verifyOTP, loginUser, logoutUser };
